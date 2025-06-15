@@ -73,5 +73,95 @@ Bordes, Florian, et al. "An introduction to vision-language modeling." arXiv pr
 
 - 본 실험에서는 **ViT-L/14 모델의 텍스트 인코더**를 사용하였으며, 따라서 생성된 **텍스트 feature의 차원은 768**
 
+### 왜 BLIP + CLIP을 같이 썼을까?
+
+#### BLIP의 역할: 텍스트 생성기 (Caption Generator)
+- BLIP2는 이미지를 입력받아 **"텍스트"** 를 생성하는 데 강함.
+- 이 문장은 표정에 대한 언어적 설명이므로, 감정 인식에 아주 유용.
+
+#### CLIP의 역할: 의미기반 임베더 (Text Encoder)
+- CLIP은 문장을 숫자 벡터로 **임베딩**하는 데 특화.
+- 자연어 감정 설명을 수치로 바꾸는 데 CLIP이 사용.
+
+### Feature Extraction & Fusion
+
+#### CNN – Image feature 추출
+- 이미지를 **DenseNet-121 모델**에 통과시켜 feature를 추출 (차원: 1024)
+
+#### CLIP – Text feature 추출
+- BLIP에서 생성된 문장을 **CLIP의 Text Encoder**에 입력하여 feature 추출 (차원: 768)
+
+#### 두 feature를 결합하여 하나의 멀티모달 감정 feature 생성
+- 두 feature를 **concatenate 후 L2 정규화**
+- 최종 feature 차원: **1792**
+
+### MLP training & results – MLP + Attention
+
+| MLP                         | Test acc | CNN 단일 모델 대비 향상률 |
+|----------------------------|----------|----------------------------|
+| MLP + Attention            | **0.8226** | **7.3%**                   |
+| MLP + Self-Attention       | 0.8147   | 5.8%                       |
+| MLP + Cross-Attention      | 0.8089   | 5.3%                       |
+
+### MLP training & results – Best MLP
+![image](https://github.com/user-attachments/assets/f981446a-01e6-4312-be6a-8caf1ac31333)
+- 기존 MLP는 CNN와 CLIP feature을 동등하게 처리하여 중요한 정보를 구별하지 못함.
+- Attention을 쓰면 중요한 feature에는 더 많은 가중치를
+덜 중요한 feature에는 적은 가중치를 부여할 수 있어서 정보 손실 없이 효율적인 표현 학습이 가능
+
+### MLP training & results – Best MLP (F1 Score 비교)
+
+| Class         | CNN 단일모델 | CNN + VLM 멀티모달 | 향상률 |
+|---------------|--------------|---------------------|--------|
+| 0 (surprise)  | 0.7548       | 0.7976              | 5%     |
+| 1 (fear)      | 0.4324       | **0.5846**          | **35%**|
+| 2 (disgust)   | 0.5176       | 0.5521              | 6%     |
+| 3 (happy)     | 0.9012       | 0.9184              | 1.9%   |
+| 4 (sad)       | 0.7326       | 0.7930              | 8%     |
+| 5 (angry)     | 0.6418       | 0.7284              | 13%    |
+| 6 (neutral)   | 0.6864       | 0.8000              | 16%    |
+
+### MLP training & results – 단일모델 vs 멀티모달 성능 비교
+
+| 모델        | Test acc | CNN 단일 모델 대비 향상률 |
+|-------------|----------|----------------------------|
+| CNN         | 0.7697   | -                          |
+| CNN + VLM   | **0.8226** | **7.3% 상승**              |
+- CNN이 시각 정보만 반영한 것과 달리, VLM은 시각 + 언어 정보 간의 상호 보완적 의미를 활용하여 감정 분류 성능을 강화함.
+- 표정이 모호하거나 혼합적인 경우, 텍스트 기반 맥락이 분류를 돕는 역할을 했을 가능성이 큼.
+- 정확도 **7.3% 상승**은 실질적인 성능 향상.
+- 단일모델 대비, 멀티모달 모델은 **정보를 더 풍부하고 정교하게 표현**할 수 있음을 증명함.
+
+### Problems & Improvements – 프롬프트 품질의 한계
+- **BLIP2는 행동 기반 학습 모델**로, **정적인 표정/감정 설명에 약함**
+<img width="893" alt="image" src="https://github.com/user-attachments/assets/8dc9b59b-4458-4097-aa65-d31aba125f13" />
+- 일부 이미지에서 부정확하거나 일관되지 않은 프롬프트 생성
+- 감정 분류 성능에 부정적 영향을 줌
+- 따라서 표정/감정 이미지 전용 VLM 탐색이 필요함
+
+### Problems & Improvements - 데이터 불균형 문제
+RAF-DB의 클래스 불균형 존재
+<img width="613" alt="image" src="https://github.com/user-attachments/assets/9795a267-f536-4a22-a6fb-e1cd4810986f" />
+- Upsampling, Downsampling 미적용
+- 소수 클래스의 학습 불안정 가능성
+- 추후 재학습 시 보완 필요
+
+### Problems & Improvements - Augmentation 실험 일관성 부족
+얼굴을 잘라내는 crop 기법은 감정 분석에서 중요한 요소로, 얼굴 표정에서 감정의 핵심 특징을 효율적으로 추출하고 배경 노이즈를 제거하는 데 효과적
+<img width="890" alt="image" src="https://github.com/user-attachments/assets/9a69f2e5-79e5-4959-a720-2647e7e7eccd" />
+- crop과 rotate는 효과가 낮아 제외되었으며, flip만 사용. 
+- crop 비율 조정 등 세분화된 실험과 재현성 확보가 필요
+
+### Problems & Improvements - Overfitting 방지 전략 미적용
+<img width="553" alt="image" src="https://github.com/user-attachments/assets/85f593f1-1c04-4444-8eaa-fe314ffa232a" />
+<img width="501" alt="image" src="https://github.com/user-attachments/assets/8a03f323-ab1a-41be-8451-fe7d0219842f" />
+
+- 일부 모델에 Early Stopping, LR Scheduler 적용하여 일반화 성능 개선
+- 그러나 일부는 여전히 과적합 발생
+- 다양한 과적합 방지 기법 도입 필요
+
+
+
+
 
 
